@@ -21,7 +21,7 @@ mkdir -p ~/docker-setup && cd ~/docker-setup
 # Baixa os arquivos do Chatwoot
 echo "Baixando Chatwoot..."
 wget -O .env https://raw.githubusercontent.com/chatwoot/chatwoot/develop/.env.example
-wget -O docker-compose.yaml https://raw.githubusercontent.com/chatwoot/chatwoot/develop/docker-compose.production.yaml
+wget -O docker-compose.yml https://raw.githubusercontent.com/chatwoot/chatwoot/develop/docker-compose.production.yaml
 
 # Ajusta permissões
 echo "Ajustando permissões do Docker..."
@@ -140,7 +140,7 @@ EOF
 
 # Prepara banco do Chatwoot
 echo "Preparando banco do Chatwoot..."
-docker compose run --rm rails bundle exec rails db:chatwoot_prepare
+
 
 # Sobe todos os containers
 echo "Iniciando containers..."
