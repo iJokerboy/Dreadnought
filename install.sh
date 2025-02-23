@@ -12,10 +12,10 @@ fi
 # --- Gera e exibe o banner "DREADNOUGHT" ---
 banner=$(figlet -f slant DREADNOUGHT)
 banner_colored=$(echo -e "\x1b[34;47;1;3m${banner}\x1b[0m")
-dialog --title "DREADNOUGHT Installer" --ok-label "INICIAR" --msgbox "$banner_colored" 15 80
+dialog --title "Script DREADNOUGHT" --ok-label "INICIAR" --msgbox "$banner_colored" 15 80
 
 # --- Abre a gauge para mostrar progresso ---
-exec 3> >(dialog --title "DREADNOUGHT Installer" --gauge "Iniciando instalação..." 10 70 0)
+exec 3> >(dialog --title "Script DREADNOUGHT" --gauge "Iniciando instalação..." 10 70 0)
 update_progress() {
     # Atualiza o progresso e a mensagem no gauge
     echo -e "$1\n$2" >&3
