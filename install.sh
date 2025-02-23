@@ -124,7 +124,7 @@ services:
       CACHE_REDIS_PREFIX_KEY: evolution
       CACHE_REDIS_SAVE_INSTANCES: true
       CACHE_LOCAL_ENABLED: true
-      AUTHENTICATION_API_KEY: viver3378
+      AUTHENTICATION_API_KEY: 3378
       CHATWOOT_ENABLED: true
       TYPEBOT_ENABLED: true
     volumes:
