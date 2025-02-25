@@ -1,5 +1,5 @@
 #!/bin/bash
-# DREADNOUGHT Installer – Interface gráfica primitiva usando dialog
+# DREADNOUGHT Installer – Interface gráfica aprimorada estilo Ubuntu Server
 
 # --- Verifica e instala utilitários necessários ---
 if ! command -v dialog &> /dev/null; then
@@ -11,15 +11,25 @@ fi
 
 # --- Gera e exibe o banner "DREADNOUGHT" ---
 banner=$(figlet -f slant DREADNOUGHT)
-banner_colored=$(echo -e "\x1b[34;47;1;3m${banner}\x1b[0m")
-dialog --title "DREADNOUGHT Installer" --ok-label "INICIAR" --msgbox "$banner_colored" 15 80
+banner_colored=$(echo -e "\x1b[1;34m${banner}\x1b[0m")
+dialog --backtitle "Ubuntu Server Installer" \
+       --title "DREADNOUGHT Installer" \
+       --ok-label "Iniciar Instalação" \
+       --msgbox "$banner_colored" 15 80
 
-# --- Abre a gauge para mostrar progresso ---
-exec 3> >(dialog --title "DREADNOUGHT Installer" --gauge "Iniciando instalação..." 10 70 0)
+# --- Abre a gauge para mostrar progresso com estilo Ubuntu ---
+exec 3> >(dialog --backtitle "Ubuntu Server Installer" \
+                 --title "DREADNOUGHT Installer" \
+                 --gauge "Iniciando instalação...\n\nAguarde enquanto os processos são executados:" 15 80 0)
+
+# Função para atualizar a gauge
 update_progress() {
-    # Atualiza o progresso e a mensagem no gauge
-    echo -e "$1\n$2" >&3
+    percent="$1"
+    message="$2"
+    echo -e "$percent\n\n$message" >&3
 }
+
+# Função para executar comandos em modo silencioso
 silent() {
     "$@" >/dev/null 2>&1
 }
@@ -28,7 +38,7 @@ silent() {
 # SCRIPT #1 – Evolution API, Typebot, Minio, etc.
 ###########################################
 
-update_progress 0 "Verificando Docker..."
+update_progress 0 "Verificando se o Docker está instalado..."
 install_update_docker() {
     if ! command -v docker &> /dev/null; then
         silent sudo apt-get update
@@ -43,7 +53,8 @@ install_update_docker() {
     fi
 }
 install_update_docker
-update_progress 10 "Instalando Docker Compose..."
+
+update_progress 10 "Instalando e configurando o Docker Compose..."
 install_docker_compose() {
     if ! command -v docker-compose &> /dev/null; then
         silent sudo curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
@@ -52,7 +63,8 @@ install_docker_compose() {
     fi
 }
 install_docker_compose
-update_progress 15 "Instalando Portainer..."
+
+update_progress 15 "Configurando o Portainer para gerenciamento de containers..."
 install_portainer() {
     if [ "$(docker ps -aq -f name=portainer)" ]; then
         :
@@ -65,18 +77,19 @@ install_portainer() {
     fi
 }
 install_portainer
-update_progress 20 "Configuração inicial concluída."
+
+update_progress 20 "Configuração inicial concluída. Preparando serviços do Script #1..."
 sleep 1
 
 apply_migrations() {
     silent docker exec -it evolution_api sh -c "rm -rf ./prisma/migrations && cp -r ./prisma/postgresql-migrations ./prisma/migrations && npx prisma migrate deploy --schema ./prisma/postgresql-schema.prisma"
     if [ $? -ne 0 ]; then
-        update_progress 0 "Erro ao aplicar migrações."
+        update_progress 0 "Erro ao aplicar migrações. Abortando instalação."
         exit 1
     fi
 }
 
-update_progress 25 "Preparando serviços do Script #1..."
+update_progress 25 "Gerando arquivo docker-compose para Evolution API e demais serviços..."
 cat <<'EOF' > docker-compose.yml
 version: '3.9'
 
@@ -193,12 +206,15 @@ EOF
 
 update_progress 30 "Subindo containers do Script #1..."
 silent docker compose -f docker-compose.yml up -d
-update_progress 35 "Aguardando containers..."
+
+update_progress 35 "Aguardando a inicialização dos containers..."
 sleep 30
+
 silent apply_migrations
-update_progress 40 "Migrações concluídas."
+update_progress 40 "Migrações aplicadas com sucesso."
+
 silent rm -f docker-compose.yml
-update_progress 50 "Arquivo temporário removido."
+update_progress 50 "Removendo arquivo temporário..."
 sleep 1
 
 ###########################################
@@ -359,27 +375,36 @@ volumes:
   chatwoot_redis_data:
 EOF
 }
-update_progress 55 "Verificando Docker para Chatwoot..."
+update_progress 55 "Verificando e instalando Docker para Chatwoot, se necessário..."
 check_docker_installed
-update_progress 60 "Baixando arquivos para Chatwoot..."
+
+update_progress 60 "Baixando arquivos de configuração para Chatwoot..."
 download_files
-update_progress 65 "Configurando ambiente Chatwoot..."
+
+update_progress 65 "Configurando ambiente do Chatwoot..."
 configure_env
+
 update_progress 70 "Configurando docker-compose para Chatwoot..."
 configure_docker_compose
+
 update_progress 75 "Preparando banco de dados do Chatwoot..."
 silent docker compose -f docker-compose-chatwoot.yaml run --rm rails bundle exec rails db:chatwoot_prepare
-update_progress 80 "Iniciando Chatwoot..."
+
+update_progress 80 "Iniciando os containers do Chatwoot..."
 silent docker compose -f docker-compose-chatwoot.yaml up -d
+
 update_progress 90 "Limpando arquivos temporários..."
 silent rm -f docker-compose-chatwoot.yaml
-update_progress 100 "Instalação concluída."
+
+update_progress 100 "Instalação dos serviços concluída."
 sleep 1
 
 # Fecha o descritor do gauge
 exec 3>&-
 
-dialog --title "DREADNOUGHT Installer" --msgbox "Instalação DREADNOUGHT concluída com sucesso!" 6 60
+dialog --backtitle "Ubuntu Server Installer" \
+       --title "DREADNOUGHT Installer" \
+       --msgbox "Instalação DREADNOUGHT concluída com sucesso!" 6 60
 
 # --- Fim do DREADNOUGHT Installer ---
 # --- Inicia Configuração do Wetty ---
