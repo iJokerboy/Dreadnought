@@ -1,34 +1,97 @@
 #!/bin/bash
-# DREADNOUGHT Installer – Interface gráfica primitiva usando dialog
+# DREADNOUGHT Installer – Versão CLI com configuração local de DNS
 
 # --- Verifica e instala utilitários necessários ---
-if ! command -v dialog &> /dev/null; then
-    sudo apt-get update && sudo apt-get install -y dialog
-fi
 if ! command -v figlet &> /dev/null; then
     sudo apt-get update && sudo apt-get install -y figlet
 fi
 
-# --- Gera e exibe o banner "DREADNOUGHT" ---
+# --- Exibe o banner "DREADNOUGHT" ---
 banner=$(figlet -f slant DREADNOUGHT)
 banner_colored=$(echo -e "\x1b[34;47;1;3m${banner}\x1b[0m")
-dialog --title "DREADNOUGHT Installer" --ok-label "INICIAR" --msgbox "$banner_colored" 15 80
+echo "$banner_colored"
+echo -e "\nPressione [ENTER] para iniciar..."
+read
 
-# --- Abre a gauge para mostrar progresso ---
-exec 3> >(dialog --title "DREADNOUGHT Installer" --gauge "Iniciando instalação..." 10 70 0)
+# --- Função para exibir progresso ---
 update_progress() {
-    # Atualiza o progresso e a mensagem no gauge
-    echo -e "$1\n$2" >&3
+    echo "[$1%] $2"
 }
+
+# --- Função para executar comandos de forma silenciosa ---
 silent() {
     "$@" >/dev/null 2>&1
 }
 
 ###########################################
+# DETECÇÃO DO IP ATUAL E CONFIGURAÇÃO DO ARQUIVO HOSTS
+###########################################
+get_current_ip() {
+    ip route get 1.2.3.4 | awk '{print $7}' | head -1
+}
+CURRENT_IP=$(get_current_ip)
+echo "IP atual detectado: $CURRENT_IP"
+
+update_hosts_file() {
+    local entry="${CURRENT_IP} portainer.local chatwoot.local evolutionapi.local typebot.local"
+    echo "Realizando backup do arquivo /etc/hosts..."
+    sudo cp /etc/hosts /etc/hosts.bak
+    echo "Removendo entradas antigas..."
+    sudo sed -i '/portainer\.local/d' /etc/hosts
+    sudo sed -i '/chatwoot\.local/d' /etc/hosts
+    sudo sed -i '/evolutionapi\.local/d' /etc/hosts
+    sudo sed -i '/typebot\.local/d' /etc/hosts
+    echo "Adicionando nova entrada: $entry"
+    echo "$entry" | sudo tee -a /etc/hosts >/dev/null
+    echo "Arquivo /etc/hosts atualizado."
+}
+update_hosts_file
+
+###########################################
+# CONFIGURAÇÃO AUTOMÁTICA DOS AMBIENTES DA EVOLUTION API
+###########################################
+SERVER_PORT=3003
+SERVER_TYPE=http
+SERVER_URL="http://$CURRENT_IP:$SERVER_PORT"
+AUTHENTICATION_API_KEY=viver3378
+
+echo "Configurando Evolution API com:"
+echo "  SERVER_PORT: $SERVER_PORT"
+echo "  SERVER_TYPE: $SERVER_TYPE"
+echo "  SERVER_URL: $SERVER_URL"
+echo "  AUTHENTICATION_API_KEY: $AUTHENTICATION_API_KEY"
+
+###########################################
+# LIMPEZA INICIAL: PARAR E REMOVER CONTAINERS E VOLUMES
+###########################################
+clean_docker() {
+    update_progress 0 "Parando todos os containers..."
+    containers=$(sudo docker ps -q)
+    if [ -n "$containers" ]; then
+        silent sudo docker stop $containers
+    fi
+
+    update_progress 5 "Removendo todos os containers..."
+    all_containers=$(sudo docker ps -aq)
+    if [ -n "$all_containers" ]; then
+        silent sudo docker rm $all_containers
+    fi
+
+    update_progress 10 "Removendo todos os volumes..."
+    volumes=$(sudo docker volume ls -q)
+    if [ -n "$volumes" ]; then
+        silent sudo docker volume rm $volumes
+    fi
+
+    update_progress 15 "Limpeza inicial concluída."
+    sleep 1
+}
+clean_docker
+
+###########################################
 # SCRIPT #1 – Evolution API, Typebot, Minio, etc.
 ###########################################
-
-update_progress 0 "Verificando Docker..."
+update_progress 20 "Verificando Docker..."
 install_update_docker() {
     if ! command -v docker &> /dev/null; then
         silent sudo apt-get update
@@ -43,7 +106,8 @@ install_update_docker() {
     fi
 }
 install_update_docker
-update_progress 10 "Instalando Docker Compose..."
+
+update_progress 30 "Instalando Docker Compose..."
 install_docker_compose() {
     if ! command -v docker-compose &> /dev/null; then
         silent sudo curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
@@ -52,7 +116,8 @@ install_docker_compose() {
     fi
 }
 install_docker_compose
-update_progress 15 "Instalando Portainer..."
+
+update_progress 35 "Instalando Portainer..."
 install_portainer() {
     if [ "$(docker ps -aq -f name=portainer)" ]; then
         :
@@ -65,7 +130,8 @@ install_portainer() {
     fi
 }
 install_portainer
-update_progress 20 "Configuração inicial concluída."
+
+update_progress 40 "Configuração inicial concluída."
 sleep 1
 
 apply_migrations() {
@@ -76,27 +142,27 @@ apply_migrations() {
     fi
 }
 
-update_progress 25 "Preparando serviços do Script #1..."
-cat <<'EOF' > docker-compose.yml
+update_progress 45 "Preparando serviços do Script #1..."
+cat <<EOF > docker-compose.yml
 version: '3.9'
 
 services:
-  postgres:
+  evolutionapi_postgres:
     image: postgres:latest
-    container_name: postgres
+    container_name: evolutionapi_postgres
     restart: always
     environment:
       POSTGRES_USER: evolutionapi
-      POSTGRES_PASSWORD: minhaSenhaForte123!
+      POSTGRES_PASSWORD: "minhaSenhaForte123!"
       POSTGRES_DB: evolutionapi_db
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - evolutionapi_postgres_data:/var/lib/postgresql/data
     ports:
       - "5435:5432"
 
-  redis:
+  evolutionapi_redis:
     image: redis:latest
-    container_name: redis
+    container_name: evolutionapi_redis
     restart: always
     ports:
       - "6374:6379"
@@ -106,27 +172,30 @@ services:
     image: atendai/evolution-api:v2.1.1
     restart: always
     ports:
-      - "3003:8080"
+      - "3003:3003"
     environment:
-      DATABASE_ENABLED: true
-      DATABASE_PROVIDER: postgresql
-      DATABASE_CONNECTION_URI: postgresql://evolutionapi:minhaSenhaForte123!@postgres:5432/evolutionapi_db?schema=public
-      DATABASE_CONNECTION_CLIENT_NAME: evolution_exchange
-      DATABASE_SAVE_DATA_INSTANCE: true
-      DATABASE_SAVE_DATA_NEW_MESSAGE: true
-      DATABASE_SAVE_MESSAGE_UPDATE: true
-      DATABASE_SAVE_DATA_CONTACTS: true
-      DATABASE_SAVE_DATA_CHATS: true
-      DATABASE_SAVE_DATA_LABELS: true
-      DATABASE_SAVE_DATA_HISTORIC: true
-      CACHE_REDIS_ENABLED: true
-      CACHE_REDIS_URI: redis://redis:6379/6
-      CACHE_REDIS_PREFIX_KEY: evolution
-      CACHE_REDIS_SAVE_INSTANCES: true
-      CACHE_LOCAL_ENABLED: true
-      AUTHENTICATION_API_KEY: viver3378
-      CHATWOOT_ENABLED: true
-      TYPEBOT_ENABLED: true
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: "postgresql"
+      DATABASE_CONNECTION_URI: "postgresql://evolutionapi:minhaSenhaForte123!@evolutionapi_postgres:5432/evolutionapi_db?schema=public"
+      DATABASE_CONNECTION_CLIENT_NAME: "evolution_exchange"
+      DATABASE_SAVE_DATA_INSTANCE: "true"
+      DATABASE_SAVE_DATA_NEW_MESSAGE: "true"
+      DATABASE_SAVE_MESSAGE_UPDATE: "true"
+      DATABASE_SAVE_DATA_CONTACTS: "true"
+      DATABASE_SAVE_DATA_CHATS: "true"
+      DATABASE_SAVE_DATA_LABELS: "true"
+      DATABASE_SAVE_DATA_HISTORIC: "true"
+      CACHE_REDIS_ENABLED: "true"
+      CACHE_REDIS_URI: "redis://evolutionapi_redis:6379/6"
+      CACHE_REDIS_PREFIX_KEY: "evolution"
+      CACHE_REDIS_SAVE_INSTANCES: "true"
+      CACHE_LOCAL_ENABLED: "true"
+      AUTHENTICATION_API_KEY: "$AUTHENTICATION_API_KEY"
+      CHATWOOT_ENABLED: "true"
+      TYPEBOT_ENABLED: "true"
+      SERVER_TYPE: "$SERVER_TYPE"
+      SERVER_PORT: "$SERVER_PORT"
+      SERVER_URL: "$SERVER_URL"
     volumes:
       - evolution_instances:/evolution/instances
 
@@ -137,17 +206,17 @@ services:
     ports:
       - "3004:3000"
     environment:
-      DATABASE_URL: postgres://evolutionapi:minhaSenhaForte123!@postgres:5432/evolutionapi_db
-      ENCRYPTION_SECRET: I7Ii+VDU8oi8FYEwM/ZUvMTboC7Ix0wG
-      SMTP_USERNAME: naorespondacolviver@gmail.com
-      SMTP_PASSWORD: vlaiwkzckfvdwxvp
-      SMTP_HOST: smtp.gmail.com
-      SMTP_PORT: 587
-      NEXTAUTH_URL: https://builder.colviver.site
-      NEXT_PUBLIC_VIEWER_URL: https://viewer.colviver.site
-      ADMIN_EMAIL: aaraujo.douglas@gmail.com
-      NEXT_PUBLIC_SMTP_FROM: naorespondacolviver@gmail.com
-      SMTP_SECURE: true
+      DATABASE_URL: "postgres://evolutionapi:minhaSenhaForte123!@evolutionapi_postgres:5432/evolutionapi_db"
+      ENCRYPTION_SECRET: "I7Ii+VDU8oi8FYEwM/ZUvMTboC7Ix0wG"
+      SMTP_USERNAME: "naorespondacolviver@gmail.com"
+      SMTP_PASSWORD: "vlaiwkzckfvdwxvp"
+      SMTP_HOST: "smtp.gmail.com"
+      SMTP_PORT: "587"
+      NEXTAUTH_URL: "https://builder.colviver.site"
+      NEXT_PUBLIC_VIEWER_URL: "https://viewer.colviver.site"
+      ADMIN_EMAIL: "aaraujo.douglas@gmail.com"
+      NEXT_PUBLIC_SMTP_FROM: "naorespondacolviver@gmail.com"
+      SMTP_SECURE: "true"
 
   typebot-viewer:
     image: baptistearno/typebot-viewer:latest
@@ -156,9 +225,9 @@ services:
     ports:
       - "3005:3000"
     environment:
-      DATABASE_URL: postgres://evolutionapi:minhaSenhaForte123!@postgres:5432/evolutionapi_db
-      NEXTAUTH_URL: https://builder.colviver.site
-      NEXT_PUBLIC_VIEWER_URL: http://viewer.colviver.site
+      DATABASE_URL: "postgres://evolutionapi:minhaSenhaForte123!@evolutionapi_postgres:5432/evolutionapi_db"
+      NEXTAUTH_URL: "https://builder.colviver.site"
+      NEXT_PUBLIC_VIEWER_URL: "http://viewer.colviver.site"
 
   minio:
     image: minio/minio
@@ -167,8 +236,8 @@ services:
     ports:
       - "9001:9000"
     environment:
-      MINIO_ROOT_USER: minio
-      MINIO_ROOT_PASSWORD: minio123
+      MINIO_ROOT_USER: "minio"
+      MINIO_ROOT_PASSWORD: "minio123"
     volumes:
       - s3-data:/data
 
@@ -186,26 +255,25 @@ services:
       "
 
 volumes:
-  postgres_data:
+  evolutionapi_postgres_data:
   evolution_instances:
   s3-data:
 EOF
 
-update_progress 30 "Subindo containers do Script #1..."
-silent docker compose -f docker-compose.yml up -d
-update_progress 35 "Aguardando containers..."
+update_progress 50 "Subindo containers do Script #1..."
+silent sudo docker-compose -f docker-compose.yml up -d
+update_progress 55 "Aguardando containers..."
 sleep 30
 silent apply_migrations
-update_progress 40 "Migrações concluídas."
+update_progress 60 "Migrações concluídas."
 silent rm -f docker-compose.yml
-update_progress 50 "Arquivo temporário removido."
+update_progress 65 "Arquivo temporário removido."
 sleep 1
 
 ###########################################
 # SCRIPT #2 – Chatwoot
 ###########################################
-
-update_progress 55 "Configurando Chatwoot..."
+update_progress 70 "Configurando Chatwoot..."
 install_docker() {
     silent sudo apt-get update
     silent sudo apt-get upgrade -y
@@ -290,6 +358,8 @@ STRIPE_WEBHOOK_SECRET=
 DIRECT_UPLOADS_ENABLED=
 AZURE_APP_ID=
 AZURE_APP_SECRET=
+CHATWOOT_IMPORT_DATABASE_CONNECTION_URI=postgres://chatwoot:chatwoot@chatwoot_postgres:5432/chatwoot_import_db
+CHATWOOT_IMPORT_PLACEHOLDER_MEDIA_MESSAGE=true
 EOF
 }
 configure_docker_compose() {
@@ -347,7 +417,7 @@ services:
     image: redis:alpine
     container_name: chatwoot_redis
     restart: always
-    command: ["sh", "-c", "redis-server --requirepass '$REDIS_PASSWORD'"]
+    command: ["sh", "-c", "redis-server --requirepass '\$REDIS_PASSWORD'"]
     env_file: .env
     volumes:
       - chatwoot_redis_data:/data
@@ -368,50 +438,33 @@ configure_env
 update_progress 70 "Configurando docker-compose para Chatwoot..."
 configure_docker_compose
 update_progress 75 "Preparando banco de dados do Chatwoot..."
-silent docker compose -f docker-compose-chatwoot.yaml run --rm rails bundle exec rails db:chatwoot_prepare
+silent docker-compose -f docker-compose-chatwoot.yaml run --rm rails bundle exec rails db:chatwoot_prepare
 update_progress 80 "Iniciando Chatwoot..."
-silent docker compose -f docker-compose-chatwoot.yaml up -d
+silent docker-compose -f docker-compose-chatwoot.yaml up -d
 update_progress 90 "Limpando arquivos temporários..."
 silent rm -f docker-compose-chatwoot.yaml
 update_progress 100 "Instalação concluída."
 sleep 1
 
-# Fecha o descritor do gauge
-exec 3>&-
+echo -e "\nInstalação DREADNOUGHT concluída com sucesso!"
 
-dialog --title "DREADNOUGHT Installer" --msgbox "Instalação DREADNOUGHT concluída com sucesso!" 6 60
+###########################################
+# CONFIGURAÇÃO DO WETTY (via CLI)
+###########################################
+read -p "Digite o IP do host SSH [$CURRENT_IP]: " WETTY_SSH_HOST
+WETTY_SSH_HOST=${WETTY_SSH_HOST:-$CURRENT_IP}
 
-# --- Fim do DREADNOUGHT Installer ---
-# --- Inicia Configuração do Wetty ---
+read -p "Digite a porta web do Wetty [3000]: " WETTY_WEB_PORT
+WETTY_WEB_PORT=${WETTY_WEB_PORT:-3000}
 
-clear
-echo "------------------------------------------------------"
-echo " Configurador Wetty - Terminal Web via SSH"
-echo "------------------------------------------------------"
-
-DEFAULT_IP=$(ip route get 1.2.3.4 | awk '{print $7}' | head -1)
-read -p "IP do host SSH [${DEFAULT_IP}]: " SSH_HOST
-SSH_HOST=${SSH_HOST:-$DEFAULT_IP}
-if [[ ! $SSH_HOST =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    echo "Erro: Formato de IP inválido!"
-    exit 1
-fi
-read -p "Porta web do Wetty [3000]: " WEB_PORT
-WEB_PORT=${WEB_PORT:-3000}
 silent docker rm -f wetty &> /dev/null
 silent docker run -d \
-    -p ${WEB_PORT}:3000 \
+    -p ${WETTY_WEB_PORT}:3000 \
     --name wetty \
     --restart unless-stopped \
-    wettyoss/wetty:latest -- --ssh-host ${SSH_HOST}
+    wettyoss/wetty:latest -- --ssh-host ${WETTY_SSH_HOST}
 
+echo -e "\nWetty instalado com sucesso!"
+echo "Acesse: http://$(curl -s ifconfig.me):${WETTY_WEB_PORT} ou localmente: http://localhost:${WETTY_WEB_PORT}"
+echo -e "No login use:\nHost: ${WETTY_SSH_HOST}\nSeu usuário e senha do SSH"
 clear
-echo "------------------------------------------------------"
-echo " Wetty instalado com sucesso!"
-echo " Acesse: http://$(curl -s ifconfig.me):${WEB_PORT}"
-echo " ou localmente: http://localhost:${WEB_PORT}"
-echo ""
-echo " No login use:"
-echo " Host: ${SSH_HOST}"
-echo " Seu usuário e senha do SSH"
-echo "------------------------------------------------------"
